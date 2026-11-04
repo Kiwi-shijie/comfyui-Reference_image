@@ -5,6 +5,7 @@ from functools import lru_cache
 from pathlib import Path
 
 import numpy as np
+import folder_paths
 from aiohttp import web
 from PIL import Image
 from server import PromptServer
@@ -70,6 +71,18 @@ def load_image(kind, identifier):
     return torch.from_numpy(pixels).unsqueeze(0)
 
 
+def load_uploaded(name):
+    import torch
+    if not name or len(name) > 220 or Path(name).name != name or "/" in name or "\\" in name or not re.search(r"\.(png|jpg|jpeg|webp)$", name, re.I):
+        raise ValueError("上传图片文件名无效")
+    path = Path(folder_paths.get_input_directory()) / "reference-image" / name
+    if not path.is_file():
+        raise FileNotFoundError("上传图片不存在，请重新上传")
+    with Image.open(path) as source:
+        pixels = np.asarray(source.convert("RGB"), dtype=np.float32) / 255.0
+    return torch.from_numpy(pixels).unsqueeze(0)
+
+
 @PromptServer.instance.routes.get("/reference-image/catalog/{kind}")
 async def serve_catalog(request):
     try:
@@ -108,24 +121,25 @@ class ReferenceImageComposer:
             "📷使用姿势视角": ("BOOLEAN", {"default": True}),
             "🧍姿势说明": ("STRING", {"default": "", "multiline": True}),
             "人物素材ID": ("STRING", {"default": ""}),
+            "人物上传文件": ("STRING", {"default": ""}),
+            "场景上传文件": ("STRING", {"default": ""}),
             "姿势素材ID": ("STRING", {"default": ""}),
+            "姿势上传文件": ("STRING", {"default": ""}),
             "服装素材ID": ("STRING", {"default": ""}),
-        }, "optional": {
-            "👤人物参考": ("IMAGE",), "🌄场景参考": ("IMAGE",),
-            "🧍姿势参考": ("IMAGE",), "👗服装参考": ("IMAGE",),
-            "🔗上游姿势说明": ("STRING", {"forceInput": True}),
+            "服装上传文件": ("STRING", {"default": ""}),
         }}
 
     def compose(self, **kw):
         images, order, present = [], [], []
         roles = [
-            ("👤人物参考", "人物素材ID", "face", "人物"),
-            ("🌄场景参考", None, None, "场景"),
-            ("🧍姿势参考", "姿势素材ID", "pose", "姿势"),
-            ("👗服装参考", "服装素材ID", "costume", "服装"),
+            ("人物上传文件", "人物素材ID", "face", "人物"),
+            ("场景上传文件", None, None, "场景"),
+            ("姿势上传文件", "姿势素材ID", "pose", "姿势"),
+            ("服装上传文件", "服装素材ID", "costume", "服装"),
         ]
-        for socket, field, kind, label in roles:
-            image = kw.get(socket)
+        for upload_field, field, kind, label in roles:
+            uploaded = str(kw.get(upload_field, "")).strip()
+            image = load_uploaded(uploaded) if uploaded else None
             if image is None and field and kw.get(field, "").strip():
                 image = load_image(kind, kw[field].strip())
             if image is None:
@@ -151,7 +165,7 @@ def compose_text(present, kw):
         lines.append(f"参考<image{number['姿势']}>的身体姿势、手部位置和肢体方向。" + ("同时参考其拍摄视角。" if kw["📷使用姿势视角"] else "拍摄视角由创作需求决定。"))
     if "服装" in number:
         lines.append(f"参考<image{number['服装']}>中的服装款式、颜色、材质和细节，为主角换上该服装，不改变人物身份。")
-    description = "；".join(x.strip() for x in (kw.get("🧍姿势说明", ""), kw.get("🔗上游姿势说明", "")) if x and x.strip())
+    description = str(kw.get("🧍姿势说明", "")).strip()
     if description:
         lines.append("姿势补充：" + description)
     brief = str(kw.get("📝创作需求", "")).strip()

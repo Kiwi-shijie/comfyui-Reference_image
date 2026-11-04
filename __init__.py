@@ -170,9 +170,11 @@ def compose_text(present, kw):
         rule = {"仅环境场景": "只参考环境、布景和光照；不要把图中人物作为额外角色。", "环境与构图": "参考环境、布景、光照及画面构图；不要把图中人物作为额外角色。", "第二个人物": "参考其中的第二个人物，保持其身份特征，并结合场景。"}[kw["🌄场景图用途"]]
         lines.append(f"<image{number['场景']}>：{rule}")
     if "服装" in number:
-        lines.append(f"参考<image{number['服装']}>中的服装款式、颜色、材质和细节，为主角换上该服装，不改变人物身份。")
+        lines.append(f"只提取<image{number['服装']}>的衣物款式、颜色、材质和细节，为主角穿上该服装；忽略服装图中的假人、模特身体、面孔、背景和道具，不改变主角身份。")
     if "姿势" in number:
-        lines.append(f"参考<image{number['姿势']}>的身体姿势、手部位置和肢体方向。" + ("同时参考其拍摄视角。" if kw["📷使用姿势视角"] else "拍摄视角由创作需求决定。"))
+        lines.append(f"只参考<image{number['姿势']}>的身体姿势、手部位置和肢体方向；不要把姿势线稿、人体模型、关节标记或其服装画进成图。" + ("同时参考其拍摄视角。" if kw["📷使用姿势视角"] else "拍摄视角由创作需求决定。"))
+    if "人物" in number:
+        lines.append("最终画面是一位面容清晰、皮肤和肢体自然的真人；人物身份以脸模参考为准，其他参考图只提供各自指定的信息。避免假人质感、塑料关节、重复肢体和拼贴感。")
     description = str(kw.get("🧍姿势说明", "")).strip()
     if description:
         lines.append("姿势补充：" + description)

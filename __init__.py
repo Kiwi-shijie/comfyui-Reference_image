@@ -117,7 +117,7 @@ class ReferenceImageComposer:
         }}
 
     def compose(self, **kw):
-        images, lines, order = [], [], []
+        images, order, present = [], [], []
         roles = [
             ("👤人物参考", "人物素材ID", "face", "人物"),
             ("🌄场景参考", None, None, "场景"),
@@ -135,24 +135,46 @@ class ReferenceImageComposer:
             images.append(image)
             tag = f"<image{len(images)}>"
             order.append(f"{tag}：{label}参考")
-            if label == "人物":
-                lines.append(f"以{tag}中的人物为角色身份参考，保持面部特征、发型和身份一致。")
-            elif label == "场景":
-                rule = {"仅环境场景": "只参考环境、布景和光照；不要把图中人物作为额外角色。", "环境与构图": "参考环境、布景、光照及画面构图；不要把图中人物作为额外角色。", "第二个人物": "参考其中的第二个人物，保持其身份特征，并结合场景。"}[kw["🌄场景图用途"]]
-                lines.append(f"{tag}：{rule}")
-            elif label == "姿势":
-                lines.append(f"参考{tag}的身体姿势、手部位置和肢体方向。" + ("同时参考其拍摄视角。" if kw["📷使用姿势视角"] else "拍摄视角由创作需求决定。"))
-            else:
-                lines.append(f"参考{tag}中的服装款式、颜色、材质和细节，为主角换上该服装，不改变人物身份。")
-        description = "；".join(x.strip() for x in (kw.get("🧍姿势说明", ""), kw.get("🔗上游姿势说明", "")) if x and x.strip())
-        if description:
-            lines.append("姿势补充：" + description)
-        brief = kw["📝创作需求"].strip()
-        if brief:
-            lines.append("创作要求：" + brief)
-        if not lines:
-            raise ValueError("请填写创作需求或选择参考图")
-        return "\n".join(lines), images, "\n".join(order) if order else "未连接参考图（文生图）"
+            present.append(label)
+        return compose_text(present, kw), images, "\n".join(order) if order else "未连接参考图（文生图）"
+
+
+def compose_text(present, kw):
+    lines = []
+    number = {name: index + 1 for index, name in enumerate(present)}
+    if "人物" in number:
+        lines.append(f"以<image{number['人物']}>中的人物为角色身份参考，保持面部特征、发型和身份一致。")
+    if "场景" in number:
+        rule = {"仅环境场景": "只参考环境、布景和光照；不要把图中人物作为额外角色。", "环境与构图": "参考环境、布景、光照及画面构图；不要把图中人物作为额外角色。", "第二个人物": "参考其中的第二个人物，保持其身份特征，并结合场景。"}[kw["🌄场景图用途"]]
+        lines.append(f"<image{number['场景']}>：{rule}")
+    if "姿势" in number:
+        lines.append(f"参考<image{number['姿势']}>的身体姿势、手部位置和肢体方向。" + ("同时参考其拍摄视角。" if kw["📷使用姿势视角"] else "拍摄视角由创作需求决定。"))
+    if "服装" in number:
+        lines.append(f"参考<image{number['服装']}>中的服装款式、颜色、材质和细节，为主角换上该服装，不改变人物身份。")
+    description = "；".join(x.strip() for x in (kw.get("🧍姿势说明", ""), kw.get("🔗上游姿势说明", "")) if x and x.strip())
+    if description:
+        lines.append("姿势补充：" + description)
+    brief = str(kw.get("📝创作需求", "")).strip()
+    if brief:
+        lines.append("创作要求：" + brief)
+    if not lines:
+        raise ValueError("请填写创作需求或选择参考图")
+    return "\n".join(lines)
+
+
+@PromptServer.instance.routes.post("/reference-image/prompt")
+async def serve_prompt(request):
+    try:
+        payload = await request.json()
+        if not isinstance(payload, dict):
+            raise ValueError("提示词参数无效")
+        present = payload.get("present", [])
+        if not isinstance(present, list) or len(present) > 4 or any(x not in ("人物", "场景", "姿势", "服装") for x in present) or len(set(present)) != len(present):
+            raise ValueError("参考图顺序无效")
+        result = compose_text(present, payload)
+        return web.json_response({"prompt": result})
+    except (ValueError, KeyError, TypeError) as exc:
+        return web.json_response({"error": str(exc)}, status=400)
 
 
 WEB_DIRECTORY = "./web"

@@ -28,6 +28,24 @@ app.registerExtension({
       root.append(element("div","ri-heading","🖼️ 参考图创作台"),element("div","ri-help","人物身份 · 环境场景 · 肢体姿势 · 服装细节"));
       const grid=element("div","ri-grid"); root.append(grid);
       const cards=[];
+      const promptTitle=element("div","ri-prompt-title","✨ 整合提示词");
+      const promptPreview=element("textarea","ri-prompt-preview");promptPreview.readOnly=true;
+      promptPreview.placeholder="选择素材或填写创作需求后，点击刷新预览";
+      const promptActions=element("div","ri-prompt-actions");
+      const refreshButton=element("button","","刷新提示词");refreshButton.type="button";
+      const copyButton=element("button","","复制提示词");copyButton.type="button";
+      const promptStatus=element("span","","");promptActions.append(refreshButton,copyButton,promptStatus);
+      refreshButton.onclick=refreshPreview;
+      copyButton.onclick=async()=>{try{await navigator.clipboard.writeText(promptPreview.value);promptStatus.textContent="已复制";}catch{promptPreview.focus();promptPreview.select();promptStatus.textContent="按 Ctrl+C 复制";}};
+      function refreshPreview(){
+        const names={face:"人物",scene:"场景",pose:"姿势",costume:"服装"};
+        const present=roles.filter(role=>(node.inputs||[]).some(i=>i.name===role.socket&&i.link!=null)||(role.field&&widgets[role.field]?.value)).map(role=>names[role.key]);
+        const payload={present,"📝创作需求":widgets["📝创作需求"]?.value||"","🌄场景图用途":widgets["🌄场景图用途"]?.value||"仅环境场景","📷使用姿势视角":widgets["📷使用姿势视角"]?.value??true,"🧍姿势说明":widgets["🧍姿势说明"]?.value||""};
+        promptStatus.textContent="正在整理…";
+        api.fetchApi("/reference-image/prompt",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)})
+          .then(async response=>{const data=await response.json();if(!response.ok)throw Error(data.error||"整理失败");promptPreview.value=data.prompt;promptStatus.textContent=`${present.length} 张参考图`;})
+          .catch(error=>{promptPreview.value="";promptStatus.textContent=error.message;});
+      }
       const selectedImage=(role,id)=>endpoint(`image/${role.key}/${encodeURIComponent(id)}?size=thumb`);
       for(const role of roles){
         const card=element("section","ri-card");
@@ -50,24 +68,29 @@ app.registerExtension({
           clear.hidden=!id||connected;
           pick.disabled=connected||role.key==="scene";
         };
-        pick.onclick=()=>openPicker(role,widgets[role.field],render);
-        clear.onclick=()=>{widgets[role.field].value="";node.setDirtyCanvas?.(true,true);render();};
+        pick.onclick=()=>openPicker(role,widgets[role.field],render,refreshPreview);
+        clear.onclick=()=>{widgets[role.field].value="";node.setDirtyCanvas?.(true,true);render();refreshPreview();};
         cards.push(render);render();
       }
-      root.append(element("div","ri-footer","素材预览不会自动运行工作流。输出提示词和有序参考图，连接生图节点后运行。"));
+      root.append(promptTitle,promptPreview,promptActions,element("div","ri-footer","素材预览不会自动运行工作流。输出提示词和有序参考图，连接生图节点后运行。"));
       for(const name of ["pointerdown","wheel","keydown"])root.addEventListener(name,e=>e.stopPropagation());
-      const dom=node.addDOMWidget("reference_cards","reference_cards",root,{serialize:false,getMinHeight:()=>470,getHeight:()=>470,hideOnZoom:false});
-      dom.computeSize=w=>[Math.max(w||0,540),470];
-      node.setSize([Math.max(node.size[0],540),Math.max(node.size[1],660)]);
+      const dom=node.addDOMWidget("reference_cards","reference_cards",root,{serialize:false,getMinHeight:()=>630,getHeight:()=>630,hideOnZoom:false});
+      dom.computeSize=w=>[Math.max(w||0,540),630];
+      node.setSize([Math.max(node.size[0],540),Math.max(node.size[1],820)]);
+      for(const name of ["📝创作需求","🌄场景图用途","📷使用姿势视角","🧍姿势说明"]){
+        const w=widgets[name];if(!w)continue;const originalCallback=w.callback;
+        w.callback=function(){const value=originalCallback?.apply(this,arguments);queueMicrotask(refreshPreview);return value;};
+      }
+      queueMicrotask(refreshPreview);
       const configured=node.onConfigure;
-      node.onConfigure=function(){const value=configured?.apply(this,arguments);queueMicrotask(()=>cards.forEach(f=>f()));return value;};
+      node.onConfigure=function(){const value=configured?.apply(this,arguments);queueMicrotask(()=>{cards.forEach(f=>f());refreshPreview();});return value;};
       const connections=node.onConnectionsChange;
-      node.onConnectionsChange=function(){const value=connections?.apply(this,arguments);queueMicrotask(()=>cards.forEach(f=>f()));return value;};
+      node.onConnectionsChange=function(){const value=connections?.apply(this,arguments);queueMicrotask(()=>{cards.forEach(f=>f());refreshPreview();});return value;};
     };
   }
 });
 
-async function openPicker(role,widget,render){
+async function openPicker(role,widget,render,refreshPreview){
   const shade=element("div","ri-shade"), modal=element("div","ri-modal");
   const title=element("strong","",`${role.title} · 素材库`);
   const close=element("button","ri-close","关闭");close.type="button";close.onclick=()=>shade.remove();
@@ -92,7 +115,7 @@ async function openPicker(role,widget,render){
       const button=element("button","ri-tile");button.type="button";
       const image=element("img","");image.loading="lazy";image.src=endpoint(`image/${role.key}/${encodeURIComponent(item.id)}?size=thumb`);
       button.append(image,element("span","",`${item.name}${item.angle?" · "+item.angle:""}`));
-      button.onclick=()=>{widget.value=item.id;render();shade.remove();};
+      button.onclick=()=>{widget.value=item.id;render();refreshPreview();shade.remove();};
       gallery.append(button);
     }
     if(!filtered.length)gallery.append(element("div","ri-status","没有匹配的素材"));

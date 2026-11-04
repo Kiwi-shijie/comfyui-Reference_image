@@ -10,6 +10,14 @@ const roles = [
 ];
 const element = (tag, cls, text) => { const e=document.createElement(tag); e.className=cls; if(text)e.textContent=text; return e; };
 const endpoint = path => api.apiURL(`/reference-image/${path}`);
+async function readJson(response, label){
+  if(response.status===404)throw Error(`${label}接口未加载：请完全退出并重启 ComfyUI，单独刷新网页无效。`);
+  const type=response.headers.get("content-type")||"";
+  if(!type.includes("application/json"))throw Error(`${label}返回了非 JSON 内容（HTTP ${response.status}），请查看 ComfyUI 启动日志。`);
+  const data=await response.json();
+  if(!response.ok)throw Error(data.error||`${label}失败（HTTP ${response.status}）`);
+  return data;
+}
 
 app.registerExtension({
   name:"ReferenceImage.Composer",
@@ -43,7 +51,7 @@ app.registerExtension({
         const payload={present,"📝创作需求":widgets["📝创作需求"]?.value||"","🌄场景图用途":widgets["🌄场景图用途"]?.value||"仅环境场景","📷使用姿势视角":widgets["📷使用姿势视角"]?.value??true,"🧍姿势说明":widgets["🧍姿势说明"]?.value||""};
         promptStatus.textContent="正在整理…";
         api.fetchApi("/reference-image/prompt",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)})
-          .then(async response=>{const data=await response.json();if(!response.ok)throw Error(data.error||"整理失败");promptPreview.value=data.prompt;promptStatus.textContent=`${present.length} 张参考图`;})
+          .then(async response=>{const data=await readJson(response,"提示词");promptPreview.value=data.prompt;promptStatus.textContent=`${present.length} 张参考图`;})
           .catch(error=>{promptPreview.value="";promptStatus.textContent=error.message;});
       }
       const selectedImage=(role,id)=>endpoint(`image/${role.key}/${encodeURIComponent(id)}?size=thumb`);
@@ -102,7 +110,7 @@ async function openPicker(role,widget,render,refreshPreview){
   let items=[];
   try{
     const response=await api.fetchApi(`/reference-image/catalog/${role.key}`);
-    const result=await response.json();if(!response.ok)throw Error(result.error||"图库读取失败");
+    const result=await readJson(response,"素材库");
     items=result.items;status.textContent=`共 ${items.length} 张，显示前 120 张；输入关键词筛选`;
     draw();
   }catch(error){status.textContent=error.message;}

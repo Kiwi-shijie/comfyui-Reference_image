@@ -70,7 +70,7 @@ app.registerExtension({
       const get = name => widgets[name]?.value || "";
       const set = (name, value) => { widgets[name].value = value; node.setDirtyCanvas?.(true, true); };
       const reference = role => get(role.upload) ? { source: "upload", value: get(role.upload) } : role.id && get(role.id) ? { source: "gallery", value: get(role.id) } : null;
-      const chosen = () => ROLES.filter(reference).map(role => NAME[role.key]);
+      const chosen = () => (widgets["🎯姿势优先"]?.value ? [ROLES[3], ...ROLES.slice(0, 3)] : ROLES).filter(reference).map(role => NAME[role.key]);
 
       async function refresh() {
         const version = ++previewVersion;
@@ -86,6 +86,7 @@ app.registerExtension({
           "🌄场景图用途": get("🌄场景图用途") || "仅环境场景",
           "📷使用姿势视角": widgets["📷使用姿势视角"]?.value ?? true,
           "🧍姿势说明": get("🧍姿势说明"),
+          "🎯姿势优先": widgets["🎯姿势优先"]?.value ?? false,
         };
         try {
           const response = await api.fetchApi("/reference-image/prompt", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
@@ -99,7 +100,7 @@ app.registerExtension({
           status.textContent = error.message;
         }
       }
-      function update() { rows.forEach(row => row.render()); void refresh(); }
+      function update() { rows.forEach(row => row.render()); subtitle.textContent = widgets["🎯姿势优先"]?.value ? "输出顺序：1 姿势 → 2 脸模 → 3 场景 → 4 服装 · 下游图片口须按此连接" : "1 脸模 → 2 场景 → 3 服装 → 4 姿势 · 上传图片不参与随机"; void refresh(); }
       async function catalog(role) {
         if (catalogs.has(role.key)) return catalogs.get(role.key);
         const response = await api.fetchApi(`/reference-image/catalog/${role.key}`);
@@ -246,6 +247,10 @@ app.registerExtension({
         const checkbox = el("input"); checkbox.type = "checkbox"; checkbox.checked = widgets["📷使用姿势视角"]?.value ?? true;
         checkbox.onchange = () => { set("📷使用姿势视角", checkbox.checked); void refresh(); };
         poseCheck.append(checkbox, document.createTextNode(" 使用姿势参考的拍摄视角")); modal.append(poseCheck);
+        const posePriority = el("label", "ri-setting-check");
+        const priorityCheck = el("input"); priorityCheck.type = "checkbox"; priorityCheck.checked = widgets["🎯姿势优先"]?.value ?? false;
+        priorityCheck.onchange = () => { set("🎯姿势优先", priorityCheck.checked); update(); };
+        posePriority.append(priorityCheck, document.createTextNode(" 姿势优先：姿势图作为 image1，下游图片口必须同步改线")); modal.append(posePriority);
         textarea("姿势补充说明", "🧍姿势说明");
         shade.append(modal); document.body.append(shade);
         shade.onclick = event => { if (event.target === shade) shade.remove(); };

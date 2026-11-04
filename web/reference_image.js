@@ -1,141 +1,265 @@
 import { app } from "../../../scripts/app.js";
 import { api } from "../../../scripts/api.js";
-const style=document.createElement("link");style.rel="stylesheet";style.href=new URL("./reference_image.css",import.meta.url).href;document.head.append(style);
 
-const roles = [
-  {key:"face", title:"👤 人物参考", field:"人物素材ID", upload:"人物上传文件"},
-  {key:"scene", title:"🌄 场景参考", upload:"场景上传文件"},
-  {key:"pose", title:"🧍 姿势参考", field:"姿势素材ID", upload:"姿势上传文件"},
-  {key:"costume", title:"👗 服装参考", field:"服装素材ID", upload:"服装上传文件"},
+const css = document.createElement("link");
+css.rel = "stylesheet";
+css.href = new URL("./reference_image.css", import.meta.url).href;
+document.head.append(css);
+
+const ROLES = [
+  { key: "face", label: "脸模", icon: "👩", id: "人物素材ID", upload: "人物上传文件" },
+  { key: "scene", label: "场景", icon: "🌄", upload: "场景上传文件" },
+  { key: "costume", label: "服装", icon: "👗", id: "服装素材ID", upload: "服装上传文件" },
+  { key: "pose", label: "姿势", icon: "🧍", id: "姿势素材ID", upload: "姿势上传文件" },
 ];
-const element = (tag, cls, text) => { const e=document.createElement(tag); e.className=cls; if(text)e.textContent=text; return e; };
-const endpoint = path => api.apiURL(`/reference-image/${path}`);
-async function readJson(response, label){
-  if(response.status===404)throw Error(`${label}接口未加载：请完全退出并重启 ComfyUI，单独刷新网页无效。`);
-  const type=response.headers.get("content-type")||"";
-  if(!type.includes("application/json"))throw Error(`${label}返回了非 JSON 内容（HTTP ${response.status}），请查看 ComfyUI 启动日志。`);
-  const data=await response.json();
-  if(!response.ok)throw Error(data.error||`${label}失败（HTTP ${response.status}）`);
-  return data;
+const NAME = { face: "人物", scene: "场景", costume: "服装", pose: "姿势" };
+const el = (tag, cls = "", value = "") => {
+  const node = document.createElement(tag);
+  node.className = cls;
+  if (value) node.textContent = value;
+  return node;
+};
+const button = (text, cls, action) => {
+  const node = el("button", cls, text);
+  node.type = "button";
+  node.onclick = action;
+  return node;
+};
+const galleryUrl = (role, id, thumb = true) => api.apiURL(`/reference-image/image/${role.key}/${encodeURIComponent(id)}${thumb ? "?size=thumb" : ""}`);
+const uploadedUrl = name => api.apiURL(`/view?${new URLSearchParams({ filename: name, subfolder: "reference-image", type: "input" })}`);
+
+async function jsonResponse(response, title) {
+  if (response.status === 404) throw Error(`${title}接口尚未加载，请完全重启 ComfyUI。`);
+  if (!(response.headers.get("content-type") || "").includes("application/json")) throw Error(`${title}返回了非 JSON 内容（HTTP ${response.status}）。`);
+  const result = await response.json();
+  if (!response.ok) throw Error(result.error || `${title}失败（HTTP ${response.status}）`);
+  return result;
 }
 
 app.registerExtension({
-  name:"ReferenceImage.Composer",
+  name: "ReferenceImage.Composer",
   async beforeRegisterNodeDef(Node, data) {
-    if(data.name!=="ReferenceImageComposer")return;
-    const original=Node.prototype.onNodeCreated;
-    Node.prototype.onNodeCreated=function(){
-      original?.apply(this,arguments);
-      const node=this;
-      const widgets=Object.fromEntries((node.widgets||[]).map(w=>[w.name,w]));
-      for(const role of roles)for(const field of [role.field,role.upload])if(field && widgets[field]){
-        const w=widgets[field];w.type="reference-hidden";w.computeSize=()=>[0,-4];
-        w.options??={};w.options.hidden=true;
+    if (data.name !== "ReferenceImageComposer") return;
+    const original = Node.prototype.onNodeCreated;
+    Node.prototype.onNodeCreated = function () {
+      original?.apply(this, arguments);
+      const node = this;
+      node.color = "#173b78";
+      node.bgcolor = "#0b2456";
+      const widgets = Object.fromEntries((node.widgets || []).map(w => [w.name, w]));
+      for (const widget of Object.values(widgets)) {
+        widget.type = "reference-hidden";
+        widget.computeSize = () => [0, -4];
+        widget.options ??= {};
+        widget.options.hidden = true;
       }
-      const root=element("div","ri-root");
-      root.append(element("div","ri-heading","🖼️ 参考图创作台"),element("div","ri-help","人物身份 · 环境场景 · 肢体姿势 · 服装细节"));
-      const grid=element("div","ri-grid"); root.append(grid);
-      const cards=[];
-      const promptTitle=element("div","ri-prompt-title","✨ 整合提示词");
-      const promptPreview=element("textarea","ri-prompt-preview");promptPreview.readOnly=true;
-      promptPreview.placeholder="选择素材或填写创作需求后，点击刷新预览";
-      const promptActions=element("div","ri-prompt-actions");
-      const refreshButton=element("button","","刷新提示词");refreshButton.type="button";
-      const copyButton=element("button","","复制提示词");copyButton.type="button";
-      const promptStatus=element("span","","");promptActions.append(refreshButton,copyButton,promptStatus);
-      refreshButton.onclick=refreshPreview;
-      copyButton.onclick=async()=>{try{await navigator.clipboard.writeText(promptPreview.value);promptStatus.textContent="已复制";}catch{promptPreview.focus();promptPreview.select();promptStatus.textContent="按 Ctrl+C 复制";}};
-      function refreshPreview(){
-        const names={face:"人物",scene:"场景",pose:"姿势",costume:"服装"};
-        const present=roles.filter(role=>widgets[role.upload]?.value||(role.field&&widgets[role.field]?.value)).map(role=>names[role.key]);
-        const payload={present,"📝创作需求":widgets["📝创作需求"]?.value||"","🌄场景图用途":widgets["🌄场景图用途"]?.value||"仅环境场景","📷使用姿势视角":widgets["📷使用姿势视角"]?.value??true,"🧍姿势说明":widgets["🧍姿势说明"]?.value||""};
-        promptStatus.textContent="正在整理…";
-        api.fetchApi("/reference-image/prompt",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)})
-          .then(async response=>{const data=await readJson(response,"提示词");promptPreview.value=data.prompt;promptStatus.textContent=`${present.length} 张参考图`;})
-          .catch(error=>{promptPreview.value="";promptStatus.textContent=error.message;});
-      }
-      const selectedImage=(role,id)=>endpoint(`image/${role.key}/${encodeURIComponent(id)}?size=thumb`);
-      for(const role of roles){
-        const card=element("section","ri-card");
-        const head=element("div","ri-card-head");head.append(element("strong","",role.title));
-        const pick=element("button","ri-pick","选择素材");pick.type="button";
-        const upload=element("button","ri-upload","上传图片");upload.type="button";
-        const file=element("input","");file.type="file";file.accept="image/png,image/jpeg,image/webp";file.hidden=true;
-        const clear=element("button","ri-clear","清除");clear.type="button";
-        head.append(pick,upload,clear);
-        const preview=element("img","ri-preview");preview.alt=role.title;
-        const empty=element("div","ri-empty","尚未选择参考图");
-        const caption=element("div","ri-caption","");
-        card.append(head,preview,empty,caption,file);grid.append(card);
-        const render=()=>{
-          const id=role.field?widgets[role.field]?.value:"";
-          const uploaded=widgets[role.upload]?.value||"";
-          preview.hidden=!id&&!uploaded;
-          if(uploaded){preview.src=api.apiURL(`/view?${new URLSearchParams({filename:uploaded,subfolder:"reference-image",type:"input"})}`);}
-          else if(id)preview.src=selectedImage(role,id);
-          empty.hidden=!!id||!!uploaded;
-          empty.textContent="选择图库素材或上传图片";
-          caption.textContent=uploaded||id||"";
-          clear.hidden=!id&&!uploaded;
-          pick.hidden=role.key==="scene";
+      const root = el("div", "ri-root");
+      const title = el("div", "ri-title", "四图组合 · 单人角色");
+      const subtitle = el("div", "ri-subtitle", "1 脸模 → 2 场景 → 3 服装 → 4 姿势 · 上传图片不参与随机");
+      const toolbar = el("div", "ri-toolbar");
+      const status = el("span", "ri-status", "");
+      const prompt = el("textarea", "ri-prompt");
+      prompt.readOnly = true;
+      prompt.placeholder = "选择参考素材或填写创作要求后，提示词会显示在这里";
+      const rows = [];
+      const catalogs = new Map();
+      let busy = false;
+      let previewVersion = 0;
+      let removed = false;
+
+      const get = name => widgets[name]?.value || "";
+      const set = (name, value) => { widgets[name].value = value; node.setDirtyCanvas?.(true, true); };
+      const reference = role => get(role.upload) ? { source: "upload", value: get(role.upload) } : role.id && get(role.id) ? { source: "gallery", value: get(role.id) } : null;
+      const chosen = () => ROLES.filter(reference).map(role => NAME[role.key]);
+
+      async function refresh() {
+        const version = ++previewVersion;
+        const present = chosen();
+        if (!present.length && !get("📝创作需求").trim() && !get("🧍姿势说明").trim()) {
+          prompt.value = "";
+          status.textContent = "选择参考图后生成提示词";
+          return;
+        }
+        const payload = {
+          present,
+          "📝创作需求": get("📝创作需求"),
+          "🌄场景图用途": get("🌄场景图用途") || "仅环境场景",
+          "📷使用姿势视角": widgets["📷使用姿势视角"]?.value ?? true,
+          "🧍姿势说明": get("🧍姿势说明"),
         };
-        pick.onclick=()=>openPicker(role,widgets,render,refreshPreview);
-        upload.onclick=()=>file.click();
-        file.onchange=async()=>{
-          const chosen=file.files?.[0];file.value="";if(!chosen)return;
-          if(chosen.size>30*1024*1024){alert("图片不能超过 30MB");return;}
-          const form=new FormData();form.append("image",chosen);form.append("type","input");form.append("subfolder","reference-image");form.append("overwrite","false");
-          try{const response=await api.fetchApi("/upload/image",{method:"POST",body:form});const result=await readJson(response,"图片上传");widgets[role.upload].value=result.name;if(role.field)widgets[role.field].value="";render();refreshPreview();node.setDirtyCanvas?.(true,true);}
-          catch(error){alert(error.message);}
+        try {
+          const response = await api.fetchApi("/reference-image/prompt", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+          const result = await jsonResponse(response, "提示词");
+          if (version !== previewVersion || removed) return;
+          prompt.value = result.prompt;
+          status.textContent = `${present.length} 张参考图`;
+        } catch (error) {
+          if (version !== previewVersion || removed) return;
+          prompt.value = "";
+          status.textContent = error.message;
+        }
+      }
+      function update() { rows.forEach(row => row.render()); void refresh(); }
+      async function catalog(role) {
+        if (catalogs.has(role.key)) return catalogs.get(role.key);
+        const response = await api.fetchApi(`/reference-image/catalog/${role.key}`);
+        const result = await jsonResponse(response, `${role.label}素材库`);
+        catalogs.set(role.key, result.items);
+        return result.items;
+      }
+      async function randomize(role = null) {
+        if (busy) return;
+        busy = true;
+        status.textContent = "正在选择素材…";
+        try {
+          for (const item of role ? [role] : ROLES.filter(r => r.id)) {
+            if (get(item.upload)) continue;
+            const items = await catalog(item);
+            if (!items.length) continue;
+            const alternatives = items.filter(v => v.id !== get(item.id));
+            const pool = alternatives.length ? alternatives : items;
+            set(item.id, pool[Math.floor(Math.random() * pool.length)].id);
+          }
+          update();
+        } catch (error) { status.textContent = error.message; }
+        finally { busy = false; }
+      }
+      toolbar.append(button("🎲 随机组合", "ri-primary", () => randomize()), button("更新提示词", "", refresh), button("创作设置", "", openSettings), status);
+      root.append(title, subtitle, toolbar);
+      const grid = el("div", "ri-grid");
+      root.append(grid);
+
+      for (const [index, role] of ROLES.entries()) {
+        const card = el("section", "ri-card");
+        const head = el("div", "ri-card-head");
+        head.append(el("strong", "", `${role.icon} ${index + 1} · ${role.label}`));
+        if (role.id) head.append(button("🎲", "ri-dice", () => randomize(role)));
+        const source = el("select", "ri-source");
+        for (const option of role.id ? ["素材库", "上传图片"] : ["上传图片"]) source.add(new Option(option, option));
+        const frame = el("div", "ri-frame");
+        const image = el("img", "ri-image");
+        const empty = el("div", "ri-empty", "选择参考图");
+        const zoom = button("🔍", "ri-zoom", () => {
+          const ref = reference(role);
+          if (ref) showImage(ref.source === "upload" ? uploadedUrl(ref.value) : galleryUrl(role, ref.value, false), `${role.label}参考`);
+        });
+        frame.append(image, empty, zoom);
+        const name = el("div", "ri-name", "尚未选择");
+        const choose = button(role.id ? "打开素材库" : "上传场景图", "ri-wide", () => role.id && source.value === "素材库" ? openGallery(role) : file.click());
+        const file = el("input", ""); file.type = "file"; file.accept = "image/png,image/jpeg,image/webp"; file.hidden = true;
+        const clear = button("清除", "ri-clear", () => { if (role.id) set(role.id, ""); set(role.upload, ""); update(); });
+        const actions = el("div", "ri-card-actions"); actions.append(choose, clear);
+        card.append(head, source, frame, name, actions, file);
+        grid.append(card);
+        const render = () => {
+          const ref = reference(role);
+          source.value = role.id && ref?.source !== "upload" ? "素材库" : "上传图片";
+          const url = ref ? ref.source === "upload" ? uploadedUrl(ref.value) : galleryUrl(role, ref.value) : "";
+          image.hidden = !url; empty.hidden = !!url; zoom.hidden = !url;
+          if (url && image.getAttribute("src") !== url) image.src = url;
+          if (!url) image.removeAttribute("src");
+          name.textContent = ref?.value || "尚未选择";
+          choose.textContent = role.id && source.value === "素材库" ? "打开素材库" : "上传图片";
+          clear.hidden = !ref;
         };
-        clear.onclick=()=>{widgets[role.upload].value="";if(role.field)widgets[role.field].value="";node.setDirtyCanvas?.(true,true);render();refreshPreview();};
-        cards.push(render);render();
+        source.onchange = () => {
+          if (source.value === "上传图片") file.click();
+          else { set(role.upload, ""); update(); }
+        };
+        file.addEventListener("cancel", update);
+        file.onchange = async () => {
+          const selected = file.files?.[0]; file.value = ""; if (!selected) return;
+          if (selected.size > 30 * 1024 * 1024) { status.textContent = "图片不能超过 30MB"; return; }
+          const form = new FormData(); form.append("image", selected); form.append("type", "input"); form.append("subfolder", "reference-image"); form.append("overwrite", "false");
+          try {
+            const response = await api.fetchApi("/upload/image", { method: "POST", body: form });
+            const result = await jsonResponse(response, "上传图片");
+            set(role.upload, result.name); if (role.id) set(role.id, ""); update();
+          } catch (error) { status.textContent = error.message; }
+        };
+        rows.push({ render }); render();
       }
-      root.append(promptTitle,promptPreview,promptActions,element("div","ri-footer","素材预览不会自动运行工作流。输出提示词和有序参考图，连接生图节点后运行。"));
-      for(const name of ["pointerdown","wheel","keydown"])root.addEventListener(name,e=>e.stopPropagation());
-      const dom=node.addDOMWidget("reference_cards","reference_cards",root,{serialize:false,getMinHeight:()=>800,getHeight:()=>800,hideOnZoom:false});
-      dom.computeSize=w=>[Math.max(w||0,620),800];
-      node.setSize([Math.max(node.size[0],620),Math.max(node.size[1],1120)]);
-      for(const name of ["📝创作需求","🌄场景图用途","📷使用姿势视角","🧍姿势说明"]){
-        const w=widgets[name];if(!w)continue;const originalCallback=w.callback;
-        w.callback=function(){const value=originalCallback?.apply(this,arguments);queueMicrotask(refreshPreview);return value;};
+
+      const promptHeading = el("div", "ri-prompt-heading", "✨ 整合提示词");
+      const copy = button("复制提示词", "ri-copy", async () => {
+        try { await navigator.clipboard.writeText(prompt.value); status.textContent = "提示词已复制"; }
+        catch { prompt.focus(); prompt.select(); status.textContent = "按 Ctrl+C 复制"; }
+      });
+      root.append(promptHeading, prompt, copy, el("div", "ri-foot", "输出四类有序参考图；连接生图节点后手动运行。"));
+      for (const event of ["pointerdown", "keydown", "wheel"]) root.addEventListener(event, e => e.stopPropagation());
+      const dom = node.addDOMWidget("reference_studio", "reference_studio", root, { serialize: false, getMinHeight: () => 645, getHeight: () => 645, hideOnZoom: false });
+      dom.computeSize = width => [Math.max(width || 0, 780), 645];
+      node.setSize([Math.max(node.size[0], 780), Math.max(node.size[1], 750)]);
+      const configured = node.onConfigure;
+      node.onConfigure = function () { const result = configured?.apply(this, arguments); queueMicrotask(() => { node.setSize([Math.max(node.size[0], 780), Math.max(node.size[1], 750)]); update(); }); return result; };
+      const onRemoved = node.onRemoved;
+      node.onRemoved = function () { removed = true; return onRemoved?.apply(this, arguments); };
+      queueMicrotask(refresh);
+
+      async function openGallery(role) {
+        const shade = el("div", "ri-shade");
+        const modal = el("div", "ri-modal");
+        const bar = el("div", "ri-modal-bar");
+        const close = button("关闭", "", () => shade.remove());
+        bar.append(el("strong", "", `${role.icon} ${role.label}素材库`), close);
+        const search = el("input", "ri-search"); search.placeholder = "搜索名称、类别或姿势视角";
+        const gallery = el("div", "ri-gallery");
+        const message = el("div", "ri-gallery-status", "正在读取…");
+        modal.append(bar, search, message, gallery); shade.append(modal); document.body.append(shade);
+        shade.onclick = event => { if (event.target === shade) shade.remove(); };
+        try {
+          const items = await catalog(role);
+          message.textContent = `共 ${items.length} 张；显示前 120 张，可输入关键词筛选`;
+          search.oninput = draw; draw();
+          function draw() {
+            const query = search.value.trim().toLowerCase();
+            const filtered = items.filter(item => `${item.id} ${item.name} ${item.category} ${item.angle}`.toLowerCase().includes(query));
+            gallery.replaceChildren();
+            for (const item of filtered.slice(0, 120)) {
+              const tile = button("", "ri-tile", () => { set(role.id, item.id); set(role.upload, ""); shade.remove(); update(); });
+              const photo = el("img"); photo.loading = "lazy"; photo.src = galleryUrl(role, item.id);
+              tile.append(photo, el("span", "", `${item.name}${item.angle ? ` · ${item.angle}` : ""}`));
+              gallery.append(tile);
+            }
+            if (!filtered.length) gallery.append(el("div", "ri-gallery-status", "没有匹配的素材"));
+          }
+        } catch (error) { message.textContent = error.message; }
       }
-      queueMicrotask(refreshPreview);
-      const configured=node.onConfigure;
-      node.onConfigure=function(){const value=configured?.apply(this,arguments);queueMicrotask(()=>{node.setSize([Math.max(node.size[0],620),Math.max(node.size[1],1120)]);cards.forEach(f=>f());refreshPreview();});return value;};
+      function openSettings() {
+        const shade = el("div", "ri-shade");
+        const modal = el("div", "ri-modal ri-settings");
+        const bar = el("div", "ri-modal-bar");
+        bar.append(el("strong", "", "创作设置"), button("完成", "", () => { shade.remove(); void refresh(); }));
+        modal.append(bar);
+        const textarea = (label, field) => {
+          modal.append(el("label", "ri-setting-label", label));
+          const input = el("textarea", "ri-setting-text"); input.value = get(field); input.oninput = () => { set(field, input.value); void refresh(); }; modal.append(input);
+        };
+        textarea("创作需求", "📝创作需求");
+        const sceneLabel = el("label", "ri-setting-label", "场景图用途");
+        const sceneSelect = el("select", "ri-setting-select");
+        for (const value of ["仅环境场景", "环境与构图", "第二个人物"]) sceneSelect.add(new Option(value, value));
+        sceneSelect.value = get("🌄场景图用途") || "仅环境场景";
+        sceneSelect.onchange = () => { set("🌄场景图用途", sceneSelect.value); void refresh(); };
+        modal.append(sceneLabel, sceneSelect);
+        const poseCheck = el("label", "ri-setting-check");
+        const checkbox = el("input"); checkbox.type = "checkbox"; checkbox.checked = widgets["📷使用姿势视角"]?.value ?? true;
+        checkbox.onchange = () => { set("📷使用姿势视角", checkbox.checked); void refresh(); };
+        poseCheck.append(checkbox, document.createTextNode(" 使用姿势参考的拍摄视角")); modal.append(poseCheck);
+        textarea("姿势补充说明", "🧍姿势说明");
+        shade.append(modal); document.body.append(shade);
+        shade.onclick = event => { if (event.target === shade) shade.remove(); };
+      }
     };
-  }
+  },
 });
 
-async function openPicker(role,widgets,render,refreshPreview){
-  const shade=element("div","ri-shade"), modal=element("div","ri-modal");
-  const title=element("strong","",`${role.title} · 素材库`);
-  const close=element("button","ri-close","关闭");close.type="button";close.onclick=()=>shade.remove();
-  const bar=element("div","ri-modal-bar");bar.append(title,close);
-  const search=element("input","ri-search");search.placeholder="搜索名称、类别或姿势视角";
-  const status=element("div","ri-status","正在读取素材…");
-  const gallery=element("div","ri-gallery");modal.append(bar,search,status,gallery);shade.append(modal);document.body.append(shade);
-  shade.onclick=e=>{if(e.target===shade)shade.remove();};
-  let items=[];
-  try{
-    const response=await api.fetchApi(`/reference-image/catalog/${role.key}`);
-    const result=await readJson(response,"素材库");
-    items=result.items;status.textContent=`共 ${items.length} 张，显示前 120 张；输入关键词筛选`;
-    draw();
-  }catch(error){status.textContent=error.message;}
-  search.oninput=draw;
-  function draw(){
-    const q=search.value.trim().toLowerCase();
-    const filtered=items.filter(i=>`${i.id} ${i.name} ${i.category} ${i.angle}`.toLowerCase().includes(q));
-    gallery.replaceChildren();
-    for(const item of filtered.slice(0,120)){
-      const button=element("button","ri-tile");button.type="button";
-      const image=element("img","");image.loading="lazy";image.src=endpoint(`image/${role.key}/${encodeURIComponent(item.id)}?size=thumb`);
-      button.append(image,element("span","",`${item.name}${item.angle?" · "+item.angle:""}`));
-      button.onclick=()=>{widgets[role.field].value=item.id;widgets[role.upload].value="";render();refreshPreview();shade.remove();};
-      gallery.append(button);
-    }
-    if(!filtered.length)gallery.append(element("div","ri-status","没有匹配的素材"));
-  }
+function showImage(url, title) {
+  const shade = el("div", "ri-shade");
+  const modal = el("div", "ri-lightbox");
+  const bar = el("div", "ri-modal-bar");
+  bar.append(el("strong", "", title), button("关闭", "", () => shade.remove()));
+  const image = el("img"); image.src = url;
+  modal.append(bar, image); shade.append(modal); document.body.append(shade);
+  shade.onclick = event => { if (event.target === shade) shade.remove(); };
 }
-

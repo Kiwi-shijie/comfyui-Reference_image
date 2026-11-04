@@ -111,7 +111,7 @@ class ReferenceImageComposer:
     RETURN_TYPES = ("STRING", "IMAGE", "STRING")
     RETURN_NAMES = ("📝最终提示词", "🖼️参考图列表", "📋参考图顺序")
     OUTPUT_IS_LIST = (False, True, False)
-    DESCRIPTION = "直观选择人物、姿势与服装图库素材，组合场景参考和创作要求。连接下游多图生图节点使用。"
+    DESCRIPTION = "四栏组合人物、场景、服装和姿势参考，预览整合提示词。连接下游多图生图节点使用。"
 
     @classmethod
     def INPUT_TYPES(cls):
@@ -134,8 +134,8 @@ class ReferenceImageComposer:
         roles = [
             ("人物上传文件", "人物素材ID", "face", "人物"),
             ("场景上传文件", None, None, "场景"),
-            ("姿势上传文件", "姿势素材ID", "pose", "姿势"),
             ("服装上传文件", "服装素材ID", "costume", "服装"),
+            ("姿势上传文件", "姿势素材ID", "pose", "姿势"),
         ]
         for upload_field, field, kind, label in roles:
             uploaded = str(kw.get(upload_field, "")).strip()
@@ -161,10 +161,10 @@ def compose_text(present, kw):
     if "场景" in number:
         rule = {"仅环境场景": "只参考环境、布景和光照；不要把图中人物作为额外角色。", "环境与构图": "参考环境、布景、光照及画面构图；不要把图中人物作为额外角色。", "第二个人物": "参考其中的第二个人物，保持其身份特征，并结合场景。"}[kw["🌄场景图用途"]]
         lines.append(f"<image{number['场景']}>：{rule}")
-    if "姿势" in number:
-        lines.append(f"参考<image{number['姿势']}>的身体姿势、手部位置和肢体方向。" + ("同时参考其拍摄视角。" if kw["📷使用姿势视角"] else "拍摄视角由创作需求决定。"))
     if "服装" in number:
         lines.append(f"参考<image{number['服装']}>中的服装款式、颜色、材质和细节，为主角换上该服装，不改变人物身份。")
+    if "姿势" in number:
+        lines.append(f"参考<image{number['姿势']}>的身体姿势、手部位置和肢体方向。" + ("同时参考其拍摄视角。" if kw["📷使用姿势视角"] else "拍摄视角由创作需求决定。"))
     description = str(kw.get("🧍姿势说明", "")).strip()
     if description:
         lines.append("姿势补充：" + description)

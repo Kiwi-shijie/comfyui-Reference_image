@@ -185,13 +185,13 @@ app.registerExtension({
         try { await navigator.clipboard.writeText(prompt.value); status.textContent = "提示词已复制"; }
         catch { prompt.focus(); prompt.select(); status.textContent = "按 Ctrl+C 复制"; }
       });
-      root.append(promptHeading, prompt, copy, el("div", "ri-foot", "输出四类有序参考图；连接生图节点后手动运行。"));
+      root.append(promptHeading, prompt, copy, el("div", "ri-foot", "右侧输出独立图片和提示词；连接下游生图节点后手动运行。"));
       for (const event of ["pointerdown", "keydown", "wheel"]) root.addEventListener(event, e => e.stopPropagation());
       const dom = node.addDOMWidget("reference_studio", "reference_studio", root, { serialize: false, getMinHeight: () => 645, getHeight: () => 645, hideOnZoom: false });
       dom.computeSize = width => [Math.max(width || 0, 780), 645];
-      node.setSize([Math.max(node.size[0], 780), Math.max(node.size[1], 750)]);
+      node.setSize([Math.max(node.size[0], 780), Math.max(node.size[1], 850)]);
       const configured = node.onConfigure;
-      node.onConfigure = function () { const result = configured?.apply(this, arguments); queueMicrotask(() => { node.setSize([Math.max(node.size[0], 780), Math.max(node.size[1], 750)]); update(); }); return result; };
+      node.onConfigure = function () { const result = configured?.apply(this, arguments); queueMicrotask(() => { node.setSize([Math.max(node.size[0], 780), Math.max(node.size[1], 850)]); update(); }); return result; };
       const onRemoved = node.onRemoved;
       node.onRemoved = function () { removed = true; return onRemoved?.apply(this, arguments); };
       queueMicrotask(refresh);

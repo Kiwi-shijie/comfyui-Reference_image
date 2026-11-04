@@ -108,9 +108,9 @@ async def serve_image(request):
 class ReferenceImageComposer:
     CATEGORY = "image/reference"
     FUNCTION = "compose"
-    RETURN_TYPES = ("STRING", "IMAGE", "STRING")
-    RETURN_NAMES = ("📝最终提示词", "🖼️参考图列表", "📋参考图顺序")
-    OUTPUT_IS_LIST = (False, True, False)
+    RETURN_TYPES = ("STRING", "IMAGE", "STRING", "IMAGE", "IMAGE", "IMAGE", "IMAGE")
+    RETURN_NAMES = ("📝最终提示词", "🖼️参考图列表", "📋参考图顺序", "👩脸模参考", "🌄场景参考", "👗服装参考", "🧍姿势参考")
+    OUTPUT_IS_LIST = (False, True, False, False, False, False, False)
     DESCRIPTION = "四栏组合人物、场景、服装和姿势参考，预览整合提示词。连接下游多图生图节点使用。"
 
     @classmethod
@@ -131,6 +131,7 @@ class ReferenceImageComposer:
 
     def compose(self, **kw):
         images, order, present = [], [], []
+        separate = {}
         roles = [
             ("人物上传文件", "人物素材ID", "face", "人物"),
             ("场景上传文件", None, None, "场景"),
@@ -143,14 +144,21 @@ class ReferenceImageComposer:
             if image is None and field and kw.get(field, "").strip():
                 image = load_image(kind, kw[field].strip())
             if image is None:
+                separate[label] = None
                 continue
             if len(image.shape) != 4 or image.shape[0] != 1 or image.shape[-1] not in (3, 4):
                 raise ValueError(f"{label}参考必须是单张 RGB 或 RGBA IMAGE")
             images.append(image)
+            separate[label] = image
             tag = f"<image{len(images)}>"
             order.append(f"{tag}：{label}参考")
             present.append(label)
-        return compose_text(present, kw), images, "\n".join(order) if order else "未连接参考图（文生图）"
+        return (
+            compose_text(present, kw),
+            images,
+            "\n".join(order) if order else "未连接参考图（文生图）",
+            separate["人物"], separate["场景"], separate["服装"], separate["姿势"],
+        )
 
 
 def compose_text(present, kw):

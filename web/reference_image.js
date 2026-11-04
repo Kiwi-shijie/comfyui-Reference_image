@@ -119,7 +119,9 @@ app.registerExtension({
             if (!items.length) continue;
             const alternatives = items.filter(v => v.id !== get(item.id));
             const pool = alternatives.length ? alternatives : items;
-            set(item.id, pool[Math.floor(Math.random() * pool.length)].id);
+            const nextId = pool[Math.floor(Math.random() * pool.length)].id;
+            if (item.key === "pose" && get(item.id) !== nextId) set("🧍姿势说明", "");
+            set(item.id, nextId);
           }
           update();
         } catch (error) { status.textContent = error.message; }
@@ -148,7 +150,7 @@ app.registerExtension({
         const name = el("div", "ri-name", "尚未选择");
         const choose = button(role.id ? "打开素材库" : "上传场景图", "ri-wide", () => role.id && source.value === "素材库" ? openGallery(role) : file.click());
         const file = el("input", ""); file.type = "file"; file.accept = "image/png,image/jpeg,image/webp"; file.hidden = true;
-        const clear = button("清除", "ri-clear", () => { if (role.id) set(role.id, ""); set(role.upload, ""); update(); });
+        const clear = button("清除", "ri-clear", () => { if (role.id) set(role.id, ""); set(role.upload, ""); if (role.key === "pose") set("🧍姿势说明", ""); update(); });
         const actions = el("div", "ri-card-actions"); actions.append(choose, clear);
         card.append(head, source, frame, name, actions, file);
         grid.append(card);
@@ -175,6 +177,7 @@ app.registerExtension({
           try {
             const response = await api.fetchApi("/upload/image", { method: "POST", body: form });
             const result = await jsonResponse(response, "上传图片");
+            if (role.key === "pose" && get(role.upload) !== result.name) set("🧍姿势说明", "");
             set(role.upload, result.name); if (role.id) set(role.id, ""); update();
           } catch (error) { status.textContent = error.message; }
         };
@@ -217,7 +220,7 @@ app.registerExtension({
             const filtered = items.filter(item => `${item.id} ${item.name} ${item.category} ${item.angle}`.toLowerCase().includes(query));
             gallery.replaceChildren();
             for (const item of filtered.slice(0, 120)) {
-              const tile = button("", "ri-tile", () => { set(role.id, item.id); set(role.upload, ""); shade.remove(); update(); });
+              const tile = button("", "ri-tile", () => { if (role.key === "pose" && (get(role.id) !== item.id || get(role.upload))) set("🧍姿势说明", ""); set(role.id, item.id); set(role.upload, ""); shade.remove(); update(); });
               const photo = el("img"); photo.loading = "lazy"; photo.src = galleryUrl(role, item.id);
               tile.append(photo, el("span", "", `${item.name}${item.angle ? ` · ${item.angle}` : ""}`));
               gallery.append(tile);
@@ -251,7 +254,7 @@ app.registerExtension({
         const priorityCheck = el("input"); priorityCheck.type = "checkbox"; priorityCheck.checked = widgets["🎯姿势优先"]?.value ?? false;
         priorityCheck.onchange = () => { set("🎯姿势优先", priorityCheck.checked); update(); };
         posePriority.append(priorityCheck, document.createTextNode(" 姿势优先：姿势图作为 image1，下游图片口必须同步改线")); modal.append(posePriority);
-        textarea("姿势补充说明", "🧍姿势说明");
+        textarea("姿势补充说明（换图后自动清除）", "🧍姿势说明");
         shade.append(modal); document.body.append(shade);
         shade.onclick = event => { if (event.target === shade) shade.remove(); };
       }

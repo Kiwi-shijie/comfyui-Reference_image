@@ -168,7 +168,7 @@ def compose_text(present, kw):
     lines = []
     number = {name: index + 1 for index, name in enumerate(present)}
     if kw.get("🎯姿势优先", False) and "姿势" in number:
-        lines.append(f"以<image{number['姿势']}>作为全身构图和肢体排列的主要画布：双臂、手、躯干、双腿的方向与位置必须跟随该图。把线稿中的人体转换为写实真人，不保留线条或关节圆圈。服装参考图里的模特站姿不得覆盖这张姿势图。")
+        lines.append(f"以<image{number['姿势']}>作为构图和肢体排列的主要画布。先观察当前姿势图，准确识别左右手掌落点、肘部弯曲方向、肩膀、躯干及可见腿部的位置，并在最终提示词中写出这些具体关系；姿势图变化时必须重新识别，不沿用旧姿势描述。生成结果必须跟随当前图的可见姿态，把线稿转换为写实真人，不保留线条或关节圆圈；服装图里的模特站姿不得覆盖姿势图。")
     if "人物" in number:
         lines.append(f"以<image{number['人物']}>中的人物为角色身份参考，保持面部特征、发型和身份一致；不沿用原人物照片的背景和棚拍光线。")
     if "场景" in number:

@@ -128,6 +128,7 @@ class ReferenceImageComposer:
             "服装素材ID": ("STRING", {"default": ""}),
             "服装上传文件": ("STRING", {"default": ""}),
             "🎯姿势优先": ("BOOLEAN", {"default": False}),
+            "🖼️构图范围": (["自动跟随姿势", "半身", "全身"],),
         }}
 
     def compose(self, **kw):
@@ -179,6 +180,13 @@ def compose_text(present, kw):
         lines.append(f"只提取<image{number['服装']}>的衣物款式、颜色、材质和细节，为主角穿上该服装；忽略服装图中的假人、模特身体、面孔、背景和道具，不改变主角身份。")
     if "姿势" in number:
         lines.append(f"只参考<image{number['姿势']}>的身体姿势、手部位置和肢体方向；构图跟随姿势图实际可见的范围：半身姿势优先半身画面，完整全身姿势才安排全身画面，不要因服装图是全身就强行补出姿势图未展示的腿部。不要把姿势线稿、人体模型、关节标记或其服装画进成图。" + ("同时参考其拍摄视角。" if kw["📷使用姿势视角"] else "拍摄视角由创作需求决定。"))
+        framing = kw.get("🖼️构图范围", "自动跟随姿势")
+        if framing == "自动跟随姿势" and not kw.get("姿势上传文件") and kw.get("姿势素材ID"):
+            framing = "半身" if selected("pose", str(kw["姿势素材ID"]).strip()).get("system") == "上半身单人" else "全身"
+        if framing == "半身":
+            lines.append("最终成图必须是半身摄影构图：画面从头顶到腰部或臀部附近，人物上半身占画面主体，画面下沿在腰部附近裁切；不展示完整双腿、鞋子或地面。服装图即使是全身照，也只提供画面内可见衣物，不决定构图。")
+        elif framing == "全身":
+            lines.append("最终成图为完整全身构图，头、手、腿和脚均在画面内；姿势图没有展示的下半身应自然延续，不照搬服装图模特的站姿。")
     if "人物" in number:
         lines.append("最终画面是一位面容清晰、皮肤和肢体自然的真人；人物身份以脸模参考为准，其他参考图只提供各自指定的信息。避免假人质感、塑料关节、重复肢体和拼贴感。")
     description = str(kw.get("🧍姿势说明", "")).strip()
@@ -203,7 +211,7 @@ async def serve_prompt(request):
             raise ValueError("参考图顺序无效")
         result = compose_text(present, payload)
         return web.json_response({"prompt": result})
-    except (ValueError, KeyError, TypeError) as exc:
+    except (ValueError, KeyError, TypeError, OSError) as exc:
         return web.json_response({"error": str(exc)}, status=400)
 
 

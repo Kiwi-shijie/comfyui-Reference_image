@@ -89,6 +89,9 @@ app.registerExtension({
           "📷使用姿势视角": widgets["📷使用姿势视角"]?.value ?? true,
           "🧍姿势说明": get("🧍姿势说明"),
           "🎯姿势优先": widgets["🎯姿势优先"]?.value ?? false,
+          "🖼️构图范围": get("🖼️构图范围") || "自动跟随姿势",
+          "姿势素材ID": get("姿势素材ID"),
+          "姿势上传文件": get("姿势上传文件"),
         };
         try {
           const response = await api.fetchApi("/reference-image/prompt", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
@@ -336,6 +339,12 @@ app.registerExtension({
         const priorityCheck = el("input"); priorityCheck.type = "checkbox"; priorityCheck.checked = widgets["🎯姿势优先"]?.value ?? false;
         priorityCheck.onchange = () => { set("🎯姿势优先", priorityCheck.checked); update(); };
         posePriority.append(priorityCheck, document.createTextNode(" 姿势优先：姿势图作为 image1，下游图片口必须同步改线")); modal.append(posePriority);
+        const framingLabel = el("label", "ri-setting-label", "构图范围");
+        const framingSelect = el("select", "ri-setting-select");
+        for (const value of ["自动跟随姿势", "半身", "全身"]) framingSelect.add(new Option(value, value));
+        framingSelect.value = get("🖼️构图范围") || "自动跟随姿势";
+        framingSelect.onchange = () => { set("🖼️构图范围", framingSelect.value); void refresh(); };
+        modal.append(framingLabel, framingSelect);
         textarea("姿势补充说明（换图后自动清除）", "🧍姿势说明");
         shade.append(modal); document.body.append(shade);
         shade.onclick = event => { if (event.target === shade) shade.remove(); };

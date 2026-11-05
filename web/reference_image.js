@@ -66,6 +66,8 @@ app.registerExtension({
       let busy = false;
       let previewVersion = 0;
       let removed = false;
+      let activeRole = null;
+      const uploading = new Set();
 
       const get = name => widgets[name]?.value || "";
       const set = (name, value) => { widgets[name].value = value; node.setDirtyCanvas?.(true, true); };
@@ -127,6 +129,34 @@ app.registerExtension({
         } catch (error) { status.textContent = error.message; }
         finally { busy = false; }
       }
+      async function uploadReference(role, selected) {
+        if (!selected || uploading.has(role.key)) return;
+        const mime = selected.type?.toLowerCase() || "";
+        const extension = { "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp" }[mime];
+        if (!extension && !/\.(png|jpe?g|webp)$/i.test(selected.name || "")) {
+          status.textContent = "仅支持 PNG、JPG、WEBP 图片";
+          return;
+        }
+        if (selected.size > 30 * 1024 * 1024) { status.textContent = "图片不能超过 30MB"; return; }
+        const filename = selected.name && /\.(png|jpe?g|webp)$/i.test(selected.name)
+          ? selected.name : `reference-${Date.now()}.${extension || "png"}`;
+        const form = new FormData();
+        form.append("image", selected, filename);
+        form.append("type", "input");
+        form.append("subfolder", "reference-image");
+        form.append("overwrite", "false");
+        uploading.add(role.key);
+        status.textContent = `正在上传${role.label}图片…`;
+        try {
+          const response = await api.fetchApi("/upload/image", { method: "POST", body: form });
+          const result = await jsonResponse(response, "上传图片");
+          if (role.key === "pose" && get(role.upload) !== result.name) set("🧍姿势说明", "");
+          set(role.upload, result.name);
+          if (role.id) set(role.id, "");
+          update();
+        } catch (error) { status.textContent = error.message; }
+        finally { uploading.delete(role.key); }
+      }
       toolbar.append(button("🎲 随机组合", "ri-primary", () => randomize()), button("更新提示词", "", refresh), button("创作设置", "", openSettings), status);
       root.append(title, subtitle, toolbar);
       const grid = el("div", "ri-grid");
@@ -134,6 +164,34 @@ app.registerExtension({
 
       for (const [index, role] of ROLES.entries()) {
         const card = el("section", "ri-card");
+        card.tabIndex = 0;
+        card.title = "拖入图片上传；点击卡片后可按 Ctrl+V 粘贴图片";
+        const activate = () => {
+          root.querySelectorAll(".ri-active").forEach(item => item.classList.remove("ri-active"));
+          card.classList.add("ri-active");
+          activeRole = role;
+        };
+        card.addEventListener("pointerdown", event => {
+          activate();
+          if (!event.target.closest("button,select,input")) card.focus({ preventScroll: true });
+        });
+        card.addEventListener("focusin", activate);
+        card.addEventListener("dragover", event => {
+          if (![...(event.dataTransfer?.items || [])].some(item => item.kind === "file") && !(event.dataTransfer?.files?.length)) return;
+          event.preventDefault(); event.stopPropagation();
+          event.dataTransfer.dropEffect = "copy";
+          card.classList.add("ri-drop");
+        });
+        card.addEventListener("dragleave", event => {
+          if (!card.contains(event.relatedTarget)) card.classList.remove("ri-drop");
+        });
+        card.addEventListener("drop", event => {
+          card.classList.remove("ri-drop");
+          const selected = [...(event.dataTransfer?.files || [])].find(file => file.type.startsWith("image/") || /\.(png|jpe?g|webp)$/i.test(file.name));
+          if (!selected) return;
+          event.preventDefault(); event.stopPropagation(); activate();
+          void uploadReference(role, selected);
+        });
         const head = el("div", "ri-card-head");
         head.append(el("strong", "", `${role.icon} ${index + 1} · ${role.label}`));
         if (role.id) head.append(button("🎲", "ri-dice", () => randomize(role)));
@@ -172,24 +230,26 @@ app.registerExtension({
         file.addEventListener("cancel", update);
         file.onchange = async () => {
           const selected = file.files?.[0]; file.value = ""; if (!selected) return;
-          if (selected.size > 30 * 1024 * 1024) { status.textContent = "图片不能超过 30MB"; return; }
-          const form = new FormData(); form.append("image", selected); form.append("type", "input"); form.append("subfolder", "reference-image"); form.append("overwrite", "false");
-          try {
-            const response = await api.fetchApi("/upload/image", { method: "POST", body: form });
-            const result = await jsonResponse(response, "上传图片");
-            if (role.key === "pose" && get(role.upload) !== result.name) set("🧍姿势说明", "");
-            set(role.upload, result.name); if (role.id) set(role.id, ""); update();
-          } catch (error) { status.textContent = error.message; }
+          await uploadReference(role, selected);
         };
         rows.push({ render }); render();
       }
+      root.addEventListener("paste", event => {
+        const clipboard = event.clipboardData;
+        const selected = [...(clipboard?.files || [])].find(file => file.type.startsWith("image/"))
+          || [...(clipboard?.items || [])].find(item => item.kind === "file" && item.type.startsWith("image/"))?.getAsFile();
+        if (!selected) return;
+        event.preventDefault(); event.stopPropagation();
+        if (!activeRole) { status.textContent = "请先点击要粘贴的参考图卡片"; return; }
+        void uploadReference(activeRole, selected);
+      });
 
       const promptHeading = el("div", "ri-prompt-heading", "✨ 整合提示词");
       const copy = button("复制提示词", "ri-copy", async () => {
         try { await navigator.clipboard.writeText(prompt.value); status.textContent = "提示词已复制"; }
         catch { prompt.focus(); prompt.select(); status.textContent = "按 Ctrl+C 复制"; }
       });
-      root.append(promptHeading, prompt, copy, el("div", "ri-foot", "右侧输出独立图片和提示词；连接下游生图节点后手动运行。"));
+      root.append(promptHeading, prompt, copy, el("div", "ri-foot", "图片可拖入对应卡片；点击卡片后按 Ctrl+V 粘贴。连接下游生图节点后手动运行。"));
       for (const event of ["pointerdown", "keydown", "wheel"]) root.addEventListener(event, e => e.stopPropagation());
       const dom = node.addDOMWidget("reference_studio", "reference_studio", root, { serialize: false, getMinHeight: () => 645, getHeight: () => 645, hideOnZoom: false });
       dom.computeSize = width => [Math.max(width || 0, 780), 645];
@@ -213,18 +273,40 @@ app.registerExtension({
         shade.onclick = event => { if (event.target === shade) shade.remove(); };
         try {
           const items = await catalog(role);
-          message.textContent = `共 ${items.length} 张；显示前 120 张，可输入关键词筛选`;
+          let filtered = [];
+          let rendered = 0;
+          const pageSize = 120;
+          const more = button("加载更多", "ri-more", () => appendPage());
+          const appendPage = () => {
+            more.remove();
+            const next = filtered.slice(rendered, rendered + pageSize);
+            for (const item of next) {
+              const tile = el("div", "ri-tile");
+              tile.tabIndex = 0;
+              tile.title = `${item.name} · ${item.id}；点击选用`;
+              const chooseItem = () => { if (role.key === "pose" && (get(role.id) !== item.id || get(role.upload))) set("🧍姿势说明", ""); set(role.id, item.id); set(role.upload, ""); shade.remove(); update(); };
+              tile.onclick = chooseItem;
+              tile.onkeydown = event => { if (event.target === tile && (event.key === "Enter" || event.key === " ")) { event.preventDefault(); chooseItem(); } };
+              const photo = el("img"); photo.loading = "lazy"; photo.src = galleryUrl(role, item.id);
+              const preview = button("🔍", "ri-tile-preview", event => { event.stopPropagation(); showImage(galleryUrl(role, item.id, false), `${item.name} · ${item.id}`); });
+              tile.append(photo, preview, el("span", "", `${item.name}${item.angle ? ` · ${item.angle}` : ""}`), el("small", "ri-tile-id", item.id));
+              gallery.append(tile);
+            }
+            rendered += next.length;
+            message.textContent = `共 ${filtered.length} 张，已显示 ${rendered} 张${rendered < filtered.length ? " · 下滑继续加载" : ""}`;
+            if (rendered < filtered.length) gallery.append(more);
+          };
+          gallery.addEventListener("scroll", () => {
+            if (rendered < filtered.length && gallery.scrollTop + gallery.clientHeight >= gallery.scrollHeight - 400) appendPage();
+          });
           search.oninput = draw; draw();
           function draw() {
             const query = search.value.trim().toLowerCase();
-            const filtered = items.filter(item => `${item.id} ${item.name} ${item.category} ${item.angle}`.toLowerCase().includes(query));
+            filtered = items.filter(item => `${item.id} ${item.name} ${item.category} ${item.angle}`.toLowerCase().includes(query));
+            rendered = 0;
             gallery.replaceChildren();
-            for (const item of filtered.slice(0, 120)) {
-              const tile = button("", "ri-tile", () => { if (role.key === "pose" && (get(role.id) !== item.id || get(role.upload))) set("🧍姿势说明", ""); set(role.id, item.id); set(role.upload, ""); shade.remove(); update(); });
-              const photo = el("img"); photo.loading = "lazy"; photo.src = galleryUrl(role, item.id);
-              tile.append(photo, el("span", "", `${item.name}${item.angle ? ` · ${item.angle}` : ""}`));
-              gallery.append(tile);
-            }
+            gallery.scrollTop = 0;
+            appendPage();
             if (!filtered.length) gallery.append(el("div", "ri-gallery-status", "没有匹配的素材"));
           }
         } catch (error) { message.textContent = error.message; }

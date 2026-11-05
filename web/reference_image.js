@@ -256,9 +256,9 @@ app.registerExtension({
       for (const event of ["pointerdown", "keydown", "wheel"]) root.addEventListener(event, e => e.stopPropagation());
       const dom = node.addDOMWidget("reference_studio", "reference_studio", root, { serialize: false, getMinHeight: () => 645, getHeight: () => 645, hideOnZoom: false });
       dom.computeSize = width => [Math.max(width || 0, 780), 645];
-      node.setSize([Math.max(node.size[0], 780), Math.max(node.size[1], 850)]);
+      node.setSize([Math.max(node.size[0], 780), Math.max(node.size[1], 900)]);
       const configured = node.onConfigure;
-      node.onConfigure = function () { const result = configured?.apply(this, arguments); queueMicrotask(() => { node.setSize([Math.max(node.size[0], 780), Math.max(node.size[1], 850)]); update(); }); return result; };
+      node.onConfigure = function () { const result = configured?.apply(this, arguments); queueMicrotask(() => { node.setSize([Math.max(node.size[0], 780), Math.max(node.size[1], 900)]); update(); }); return result; };
       const onRemoved = node.onRemoved;
       node.onRemoved = function () { removed = true; return onRemoved?.apply(this, arguments); };
       queueMicrotask(refresh);

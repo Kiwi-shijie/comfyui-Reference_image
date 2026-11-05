@@ -1,5 +1,6 @@
 """Reference image composer with optional local gallery browsing."""
 import json
+import math
 import re
 from functools import lru_cache
 from pathlib import Path
@@ -108,9 +109,9 @@ async def serve_image(request):
 class ReferenceImageComposer:
     CATEGORY = "image/reference"
     FUNCTION = "compose"
-    RETURN_TYPES = ("STRING", "IMAGE", "STRING", "IMAGE", "IMAGE", "IMAGE", "IMAGE")
-    RETURN_NAMES = ("📝最终提示词", "🖼️参考图列表", "📋参考图顺序", "👩脸模参考", "🌄场景参考", "👗服装参考", "🧍姿势参考")
-    OUTPUT_IS_LIST = (False, True, False, False, False, False, False)
+    RETURN_TYPES = ("STRING", "IMAGE", "STRING", "IMAGE", "IMAGE", "IMAGE", "IMAGE", "INT", "INT")
+    RETURN_NAMES = ("📝最终提示词", "🖼️参考图列表", "📋参考图顺序", "👩脸模参考", "🌄场景参考", "👗服装参考", "🧍姿势参考", "↔️姿势画幅宽", "↕️姿势画幅高")
+    OUTPUT_IS_LIST = (False, True, False, False, False, False, False, False, False)
     DESCRIPTION = "四栏组合人物、场景、服装和姿势参考，预览整合提示词。连接下游多图生图节点使用。"
 
     @classmethod
@@ -157,11 +158,21 @@ class ReferenceImageComposer:
             tag = f"<image{len(images)}>"
             order.append(f"{tag}：{label}参考")
             present.append(label)
+        pose = separate["姿势"]
+        if pose is not None:
+            ratio = max(0.5, min(2.0, pose.shape[2] / pose.shape[1]))
+            width = round(math.sqrt(3 * 1024 * 1024 * ratio) / 32) * 32
+            width = max(512, min(2048, width))
+            height = round(width / ratio / 32) * 32
+            height = max(512, min(2048, height))
+        else:
+            width, height = 1024, 1536
         return (
             compose_text(present, kw),
             images,
             "\n".join(order) if order else "未连接参考图（文生图）",
             separate["人物"], separate["场景"], separate["服装"], separate["姿势"],
+            width, height,
         )
 
 

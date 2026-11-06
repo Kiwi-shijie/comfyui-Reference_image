@@ -72,7 +72,7 @@ app.registerExtension({
       const get = name => widgets[name]?.value || "";
       const set = (name, value) => { widgets[name].value = value; node.setDirtyCanvas?.(true, true); };
       const reference = role => get(role.upload) ? { source: "upload", value: get(role.upload) } : role.id && get(role.id) ? { source: "gallery", value: get(role.id) } : null;
-      const chosen = () => (widgets["🎯姿势优先"]?.value ? [ROLES[3], ...ROLES.slice(0, 3)] : ROLES).filter(reference).map(role => NAME[role.key]);
+      const chosen = () => ROLES.filter(reference).map(role => NAME[role.key]);
 
       async function refresh() {
         const version = ++previewVersion;
@@ -105,7 +105,7 @@ app.registerExtension({
           status.textContent = error.message;
         }
       }
-      function update() { rows.forEach(row => row.render()); subtitle.textContent = widgets["🎯姿势优先"]?.value ? "输出顺序：1 姿势 → 2 脸模 → 3 场景 → 4 服装 · 下游图片口须按此连接" : "1 脸模 → 2 场景 → 3 服装 → 4 姿势 · 上传图片不参与随机"; void refresh(); }
+      function update() { rows.forEach(row => row.render()); subtitle.textContent = widgets["🎯姿势优先"]?.value ? "参考顺序：1 脸模 → 2 场景 → 3 服装 → 4 姿势 · 姿势由控制图主导" : "1 脸模 → 2 场景 → 3 服装 → 4 姿势 · 上传图片不参与随机"; void refresh(); }
       async function catalog(role) {
         if (catalogs.has(role.key)) return catalogs.get(role.key);
         const response = await api.fetchApi(`/reference-image/catalog/${role.key}`);
@@ -351,7 +351,7 @@ app.registerExtension({
         const posePriority = el("label", "ri-setting-check");
         const priorityCheck = el("input"); priorityCheck.type = "checkbox"; priorityCheck.checked = widgets["🎯姿势优先"]?.value ?? false;
         priorityCheck.onchange = () => { set("🎯姿势优先", priorityCheck.checked); update(); };
-        posePriority.append(priorityCheck, document.createTextNode(" 姿势优先：姿势图作为 image1，下游图片口必须同步改线")); modal.append(posePriority);
+        posePriority.append(priorityCheck, document.createTextNode(" 姿势优先：强调姿态与裁切；控制工作流请把姿势图接入 ControlNet")); modal.append(posePriority);
         const framingLabel = el("label", "ri-setting-label", "构图范围");
         const framingSelect = el("select", "ri-setting-select");
         for (const value of ["自动跟随姿势", "半身", "全身"]) framingSelect.add(new Option(value, value));

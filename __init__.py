@@ -109,9 +109,9 @@ async def serve_image(request):
 class ReferenceImageComposer:
     CATEGORY = "image/reference"
     FUNCTION = "compose"
-    RETURN_TYPES = ("STRING", "IMAGE", "STRING", "IMAGE", "IMAGE", "IMAGE", "IMAGE", "INT", "INT")
-    RETURN_NAMES = ("📝最终提示词", "🖼️参考图列表", "📋参考图顺序", "👩脸模参考", "🌄场景参考", "👗服装参考", "🧍姿势参考", "↔️姿势画幅宽", "↕️姿势画幅高")
-    OUTPUT_IS_LIST = (False, True, False, False, False, False, False, False, False)
+    RETURN_TYPES = ("STRING", "IMAGE", "STRING", "IMAGE", "IMAGE", "IMAGE", "IMAGE", "INT", "INT", "LATENT")
+    RETURN_NAMES = ("📝最终提示词", "🖼️参考图列表", "📋参考图顺序", "👩脸模参考", "🌄场景参考", "👗服装参考", "🧍姿势参考", "↔️姿势画幅宽", "↕️姿势画幅高", "⬜空白生成画布")
+    OUTPUT_IS_LIST = (False, True, False, False, False, False, False, False, False, False)
     DESCRIPTION = "四栏组合人物、场景、服装和姿势参考，预览整合提示词。连接下游多图生图节点使用。"
 
     @classmethod
@@ -141,8 +141,6 @@ class ReferenceImageComposer:
             ("服装上传文件", "服装素材ID", "costume", "服装"),
             ("姿势上传文件", "姿势素材ID", "pose", "姿势"),
         ]
-        if kw.get("🎯姿势优先", False):
-            roles = [roles[3], *roles[:3]]
         for upload_field, field, kind, label in roles:
             uploaded = str(kw.get(upload_field, "")).strip()
             image = load_uploaded(uploaded) if uploaded else None
@@ -167,12 +165,18 @@ class ReferenceImageComposer:
             height = max(512, min(2048, height))
         else:
             width, height = 1024, 1536
+        import torch
+        import comfy.model_management
+        blank_latent = {"samples": torch.zeros(
+            [1, 64, height // 16, width // 16],
+            device=comfy.model_management.intermediate_device(),
+        )}
         return (
             compose_text(present, kw),
             images,
             "\n".join(order) if order else "未连接参考图（文生图）",
             separate["人物"], separate["场景"], separate["服装"], separate["姿势"],
-            width, height,
+            width, height, blank_latent,
         )
 
 
@@ -180,7 +184,7 @@ def compose_text(present, kw):
     lines = []
     number = {name: index + 1 for index, name in enumerate(present)}
     if kw.get("🎯姿势优先", False) and "姿势" in number:
-        lines.append(f"以<image{number['姿势']}>作为构图和肢体排列的主要画布。先观察当前姿势图，准确识别左右手掌落点、肘部弯曲方向、肩膀、躯干及可见腿部的位置，并在最终提示词中写出这些具体关系；姿势图变化时必须重新识别，不沿用旧姿势描述。生成结果必须跟随当前图的可见姿态，把线稿转换为写实真人，不保留线条或关节圆圈；服装图里的模特站姿不得覆盖姿势图。")
+        lines.append(f"以<image{number['姿势']}>作为身体结构与裁切范围的主要依据，而不是可直接保留的画面。先观察当前姿势图，准确识别左右手掌落点、肘部弯曲方向、肩膀、躯干及可见腿部的位置，并在最终提示词中写出这些具体关系；姿势图变化时必须重新识别，不沿用旧姿势描述。生成结果必须是跟随当前姿态的写实真人照片，不能保留线稿、白纸背景或关节圆圈；服装图里的模特站姿不得覆盖姿势图。")
     if "人物" in number:
         lines.append(f"以<image{number['人物']}>中的人物为角色身份参考，保持面部特征、发型和身份一致；不沿用原人物照片的背景和棚拍光线。")
     if "场景" in number:
@@ -211,6 +215,28 @@ def compose_text(present, kw):
     return "\n".join(lines)
 
 
+class ReferenceImageControlPrompt:
+    """Keep the pose visible to the optimizer without feeding its sketch to the image encoder."""
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {"required": {
+            "prompt": ("STRING", {"forceInput": True}),
+            "reference_order": ("STRING", {"forceInput": True}),
+        }}
+
+    RETURN_TYPES = ("STRING",)
+    RETURN_NAMES = ("prompt",)
+    FUNCTION = "convert"
+    CATEGORY = "Reference image"
+
+    def convert(self, prompt, reference_order):
+        match = re.search(r"<image(\d+)>\s*[:：]\s*姿势参考", reference_order)
+        if match:
+            prompt = re.sub(rf"<image{match.group(1)}>", "姿势控制图", prompt, flags=re.IGNORECASE)
+        return (prompt,)
+
+
 @PromptServer.instance.routes.post("/reference-image/prompt")
 async def serve_prompt(request):
     try:
@@ -227,5 +253,5 @@ async def serve_prompt(request):
 
 
 WEB_DIRECTORY = "./web"
-NODE_CLASS_MAPPINGS = {"ReferenceImageComposer": ReferenceImageComposer}
-NODE_DISPLAY_NAME_MAPPINGS = {"ReferenceImageComposer": "🖼️ 参考图创作台"}
+NODE_CLASS_MAPPINGS = {"ReferenceImageComposer": ReferenceImageComposer, "ReferenceImageControlPrompt": ReferenceImageControlPrompt}
+NODE_DISPLAY_NAME_MAPPINGS = {"ReferenceImageComposer": "🖼️ 参考图创作台", "ReferenceImageControlPrompt": "🧍 姿势控制提示词"}
